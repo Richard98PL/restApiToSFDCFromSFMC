@@ -15,10 +15,18 @@
       url += 'username=' + username + '&';
       url += 'password=' + password;
     
-      var result = HTTP.Post(url,"application/json",null,null);
-      var json = Platform.Function.ParseJSON(result.Response[0]);
-      var access_token = json.access_token;
-      var instance_url = json.instance_url;
+      var result, json, access_token, instance_url;
+      try{
+        result = HTTP.Post(url,"application/json",null,null); //in case of error this function goes to try catch
+        json = Platform.Function.ParseJSON(result.Response[0]);
+        access_token = json.access_token;
+        instance_url = json.instance_url;
+      }catch(error){
+        result = HTTP.Post(url,"application/json",null,null);
+        json = Platform.Function.ParseJSON(result.Response[0]);
+        access_token = json.access_token;
+        instance_url = json.instance_url;
+      }
       
       Write('<br>Result: ' + json.access_token);
       Write('<br>Result: ' + json.instance_url);
@@ -28,16 +36,17 @@
     
       var logResult = '';
       
-      var records = [];
+     
       try{
           Write("<br/>" + 'WSProxy start')
           var prox = new Script.Util.WSProxy();
-          var deName = '?';
+          var deName = '9933EDC0-1598-42CD-929A-D82F13B9D741';
           var hasMoreRows = true;
           var reqId;
           var cols = ["Customer_Activity", "Customer_Id", "Timestamp", "Metadata", "Email", "Internal_Timestamp", "URL"];
     
           do {
+            var records = [];
             var resp;
             if (!reqId) {
               resp = prox.retrieve("DataExtensionObject[" + deName + "]", cols);
@@ -49,8 +58,8 @@
               hasMoreRows = resp.HasMoreRows || false;
               reqId = resp.RequestID;
               
+              var counter = 0;
               for (var i = 0; i < resp.Results.length; i++) {
-                
                 var row = resp.Results[i];
 
                 var customerActivity = row.Properties[0].Value;
@@ -62,17 +71,7 @@
                 var internalTimestamp = row.Properties[5].Value;
                 var url = row.Properties[6].Value;
 
-                // var arrayRecord = '{"attributes":{"type":"Marketing_Cloud_Activity_Log__c","referenceId":"ref' + i + '"},';
-                // arrayRecord += '"Customer_Activity__c":"' + customerActivity + '",';
-                // arrayRecord += '"Email__c":"' + email + '",';
-                // arrayRecord += '"Salesforce_Record_Id__c":"' + customerId + '",';
-                // arrayRecord += '"Timestamp__c":"' + timestamp + '",';
-                // metadata = TreatAsContent("%%=Replace('" + metadata + "','\"','\\\"')=%%");
-                // arrayRecord += '"Payload__c":"' + metadata + '",';
-                // arrayRecord += '"URL__c":"' + url + '"}';
-
-                // records.push(arrayRecord);
-
+                
                 var attributes = {};
                 attributes.type = "Marketing_Cloud_Activity_Log__c";
                 attributes.referenceId = "ref" + i;
@@ -87,66 +86,41 @@
                 jsonInstance.URL__c = url;
 
                 records.push(jsonInstance);
-              }
+                
+                counter++;
+                if(i == resp.Results.length - 1 || counter == 200){
+                    try{
+                        Write("<br/>" + new Date());
+                    
+                        var payload = '{"records":' + Stringify(records) + '}';
 
+                        var req = new Script.Util.HttpRequest(logEndpoint);
+                        req.emptyContentHandling = 0;
+                        req.retries = 2;
+                        req.continueOnError = true;
+                        req.contentType = "application/json; charset=utf-8";
+                        req.method = "POST";
+                        req.postData = payload;
+                        req.setHeader("Authorization", "Bearer " + access_token);
+                        req.setHeader("Accept-Encoding","gzip, deflate, br");
+                        req.setHeader("Accept", "*/*");
+    
+                        var resp = req.send();
+                        Write("<br/>" + Platform.Function.ParseJSON(String(resp.content)));
+                        Write("<br/>" + String(resp.content));
+                    }catch(e){
+                        Write("<br/>" + Stringify(e)); 
+                    }finally{
+                        records = [];
+                        counter = 0;
+                    }
+                }
+              }
             } else {
               hasMoreRows = false;
             }
           } while (hasMoreRows);
-
-          Write("<br/>" + records.length);
-          Write("<br/>" + 'hmm');
-          var subArray = [];
-          var payload = '';
-
-          for(var i = 0 ; i < records.length; i++){
-            subArray.push(records[i]);
-            if( 
-                ( (i != 0 && i % 199 == 0) || i == (records.length - 1) ) 
-                || 
-                (records.length == 1 && i == 0) 
-            ){
-                Write("<br/>" + i);
-                try{
-                    Write("<br/>" + new Date());
-                    // payload = '{"records":[';
-                    // for(var j = 0 ; j < subArray.length; j++){
-                    //     payload += subArray[j] + ",";
-                    // }
-
-                    // var payload = payload.substring(0, payload.length - 1);
-                    // payload += ']}';
-                    var payload = '{"records":' + Stringify(subArray) + '}';
-
-                    //Write("<br/>" + payload);
-
-                    var req = new Script.Util.HttpRequest(logEndpoint);
-                    req.emptyContentHandling = 0;
-                    req.retries = 2;
-                    req.continueOnError = true;
-                    req.contentType = "application/json; charset=utf-8";
-                    req.method = "POST";
-                    req.postData = payload;
-                    req.setHeader("Authorization", "Bearer " + access_token);
-                    req.setHeader("Accept-Encoding","gzip, deflate, br");
-                    req.setHeader("Accept", "*/*");
-   
-                    var resp = req.send();
-                    Write("<br/>" + Platform.Function.ParseJSON(String(resp.content)));
-                    Write("<br/>" + String(resp.content));
-                }catch(e){
-                    Write("<br/>" + Stringify(e)); 
-                }finally{
-                    subArray = [];
-                }
-
-                if(i>600){
-                    break;
-                }
-            }
-          }
       }catch(error){
         Write("<br/>" + Stringify(error));
-      }
-      
-    </script>
+      }  
+</script>
